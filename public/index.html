@@ -133,6 +133,10 @@
   .qcard{border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;background:var(--panel-raised);}
   .qcard-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
   .qnum{color:var(--amber);font-family:'Oswald';font-size:13px;font-weight:600;}
+  .review-item{border:1px solid var(--border);border-left-width:3px;border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;background:var(--panel-raised);text-align:left;}
+  .review-item.review-correct{border-left-color:var(--success);}
+  .review-item.review-incorrect{border-left-color:var(--danger);}
+  .review-hdr{display:flex;justify-content:space-between;align-items:center;}
   .footer-note{color:var(--muted);font-size:12px;text-align:center;padding:20px;}
   a{color:var(--amber);}
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
@@ -470,9 +474,18 @@ function prevQuestion(){
 async function submitSurvey(){
   const s = currentSurvey();
   let score = 0;
+  const review = [];
   s.questions.forEach(q=>{
     const given = state.takeAnswers[q.id];
-    if(isCorrect(q, given)) score++;
+    const correct = isCorrect(q, given);
+    if(correct) score++;
+    review.push({
+      text: q.text,
+      type: q.type,
+      correct: correct,
+      givenDisplay: formatAnswerDisplay(q, given),
+      correctDisplay: formatAnswerDisplay(q, q.correctAnswer)
+    });
   });
   const responses = await loadResponses(s.id);
   responses.push({
@@ -487,7 +500,15 @@ async function submitSurvey(){
   await saveResponses(s.id, responses);
   state.view='done';
   state.lastScore = score;
+  state.lastReview = review;
   render();
+}
+
+function formatAnswerDisplay(q, val){
+  if(val===undefined || val===null || val==='') return '(no answer)';
+  if(q.type==='multiple_choice') return q.options[val] !== undefined ? q.options[val] : '(no answer)';
+  if(q.type==='true_false') return val===true ? 'True' : val===false ? 'False' : '(no answer)';
+  return String(val);
 }
 
 function isCorrect(q, given){
@@ -502,6 +523,7 @@ function isCorrect(q, given){
 
 function viewDone(){
   const s = currentSurvey();
+  const showReview = s && s.isQuiz && Array.isArray(state.lastReview);
   return `
   <div class="panel" style="text-align:center;padding:36px 20px;">
     <h2>Thanks, ${escapeHtml(state.takeName)}!</h2>
@@ -511,7 +533,24 @@ function viewDone(){
     <div class="btn-row" style="justify-content:center;">
       <button class="btn" onclick="goHome()">Back to surveys</button>
     </div>
-  </div>`;
+  </div>
+  ${showReview ? `
+  <div class="panel">
+    <div class="eyebrow">REVIEW</div>
+    <h3 style="margin-bottom:12px;">How you did, question by question</h3>
+    ${state.lastReview.map((r,i)=>`
+      <div class="review-item ${r.correct?'review-correct':'review-incorrect'}">
+        <div class="review-hdr">
+          <span class="qnum">Q${i+1}</span>
+          <span class="tag ${r.correct?'tag-open':'tag-closed'}">${r.correct?'CORRECT':'INCORRECT'}</span>
+        </div>
+        <p style="margin:6px 0 8px 0;">${escapeHtml(r.text)}</p>
+        <p class="small muted" style="margin:0;">Your answer: <span style="color:var(--text)">${escapeHtml(r.givenDisplay)}</span></p>
+        ${!r.correct ? `<p class="small" style="margin:4px 0 0 0;">Correct answer: <span style="color:var(--success)">${escapeHtml(r.correctDisplay)}</span></p>` : ''}
+      </div>
+    `).join('')}
+  </div>
+  ` : ''}`;
 }
 
 /* =================================================================
