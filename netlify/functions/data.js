@@ -3,13 +3,14 @@
 // POST   /.netlify/functions/data  { key, value }     -> { ok: true }
 // DELETE /.netlify/functions/data?key=responses:xyz   -> { ok: true }
 
-const { getStore } = require("@netlify/blobs");
+const { getStore, connectLambda } = require("@netlify/blobs");
 
-exports.handler = async (event) => {
-  const store = getStore("ideal-crane-survey-data");
-  const key = event.queryStringParameters && event.queryStringParameters.key;
-
+exports.handler = async (event, context) => {
   try {
+    connectLambda(event);
+    const store = getStore("ideal-crane-survey-data");
+    const key = event.queryStringParameters && event.queryStringParameters.key;
+
     if (event.httpMethod === "GET") {
       if (!key) return json(400, { error: "Missing key" });
       const value = await store.get(key);
