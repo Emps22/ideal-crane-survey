@@ -9,16 +9,16 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   :root{
-    --bg:#1b1c1e;
-    --panel:#242628;
-    --panel-raised:#2b2d30;
-    --border:#3c3f42;
+    --bg:#f4f5f6;
+    --panel:#ffffff;
+    --panel-raised:#eef0f1;
+    --border:#dcdfe2;
     --amber:#f5a623;
     --amber-dark:#c9860f;
-    --text:#ececec;
-    --muted:#9a9ea3;
-    --danger:#e2534b;
-    --success:#5cae6b;
+    --text:#1c1d1f;
+    --muted:#666b70;
+    --danger:#c94a3f;
+    --success:#2f8a45;
     --radius:2px;
   }
   *{box-sizing:border-box;}
@@ -59,7 +59,7 @@
   /* panels */
   .panel{
     background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
-    padding:20px;margin-bottom:16px;
+    padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,0.04);
   }
   .panel-tight{padding:16px;}
   .eyebrow{color:var(--amber);font-size:12px;font-weight:600;margin-bottom:6px;}
@@ -698,7 +698,7 @@ function viewAdminShare(){
     <div class="btn-row">
       <button class="btn" onclick="copyShareLink()">Copy link</button>
     </div>
-    <div id="qr-container" style="margin-top:20px;display:flex;justify-content:center;align-items:center;background:#fff;padding:16px;border-radius:2px;max-width:232px;min-height:200px;"></div>
+    <div id="qr-container" style="margin-top:20px;display:flex;justify-content:center;align-items:center;background:#fff;padding:16px;border-radius:2px;max-width:232px;min-height:200px;border:1px solid var(--border);"></div>
     <p class="muted small" style="margin-top:10px;">Right-click (or press and hold) the QR code to save it as an image.</p>
     ${s.status!=='open' ? `<p class="err">Heads up — this survey is archived, so the link won't let anyone respond until you reopen it.</p>` : ''}
   </div>
