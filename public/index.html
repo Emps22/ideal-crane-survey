@@ -933,13 +933,24 @@ function viewAdminResponses(){
   if(responses===undefined) return `<div class="empty">Loading responses&hellip;</div>`;
 
   const maxScore = s.questions.length;
-  const eligible = s.isQuiz ? responses.filter(r=>r.score===maxScore) : responses;
+  const minScore = effectiveMinScore(s);
+  const eligible = getEligible(s, responses);
+  let minOptions = '';
+  for(let k=maxScore;k>=1;k--){
+    const count = responses.filter(r=>r.score>=k).length;
+    const label = (k===maxScore ? `Perfect score only (${k}/${maxScore})` : `${k}/${maxScore} or better`) + ` \u2014 ${count} ${count===1?'person':'people'}`;
+    minOptions += `<option value="${k}" ${k===minScore?'selected':''}>${label}</option>`;
+  }
 
   return `
   <div class="panel">
     <div class="eyebrow">${escapeHtml(s.title)}</div>
     <h2 style="margin-bottom:2px;">Responses (${responses.length})</h2>
-    <p class="muted small">${s.isQuiz ? `${eligible.length} respondent${eligible.length===1?'':'s'} scored a perfect ${maxScore}/${maxScore}` : 'This is a plain survey — everyone who responded is eligible for a drawing.'}</p>
+    <p class="muted small">${s.isQuiz ? `${eligible.length} ${eligible.length===1?'person is':'people are'} in the drawing (${minScore===maxScore ? 'perfect score' : 'scored '+minScore+'/'+maxScore+' or better'}).` : 'This is a plain survey — everyone who responded is eligible for a drawing.'}</p>
+    ${s.isQuiz ? `
+    <label for="min-score">Who enters the drawing</label>
+    <select id="min-score" style="max-width:380px;" onchange="setMinScore(this.value)">${minOptions}</select>
+    ` : ''}
   </div>
 
   ${responses.length>0 ? `
@@ -952,17 +963,17 @@ function viewAdminResponses(){
         <button class="btn" id="spin-btn" onclick="spinWheel()">${state.winner ? 'Spin again' : 'Spin the wheel'}</button>
         <label class="sound-toggle"><input type="checkbox" ${soundOn?'checked':''} onchange="setSound(this.checked)"> Sound</label>
       </div>
-    ` : `<p class="muted" style="margin:0;">Nobody has a perfect ${maxScore}/${maxScore} yet, so there is no one to draw.</p>`}
+    ` : `<p class="muted" style="margin:0;">Nobody has scored ${minScore===maxScore ? 'a perfect '+maxScore+'/'+maxScore : minScore+'/'+maxScore+' or better'} yet, so there is no one to draw.</p>`}
     <div id="winner-slot">${state.winner ? winnerBoxHtml(state.winner) : ''}</div>
   </div>
   <div class="panel">
     <table>
-      <thead><tr><th>Name</th>${s.isQuiz?'<th>Score</th>':''}<th>Submitted</th></tr></thead>
+      <thead><tr><th>Name</th>${s.isQuiz?'<th>Score</th><th>Drawing</th>':''}<th>Submitted</th></tr></thead>
       <tbody>
         ${responses.slice().sort((a,b)=>b.submittedAt.localeCompare(a.submittedAt)).map(r=>`
           <tr>
             <td>${escapeHtml(r.name)}</td>
-            ${s.isQuiz?`<td>${r.score}/${r.total}</td>`:''}
+            ${s.isQuiz?`<td>${r.score}/${r.total}</td><td>${r.score>=minScore?'<span class="tag tag-open">IN DRAWING</span>':''}</td>`:''}
             <td class="muted">${formatDate(r.submittedAt)}</td>
           </tr>
         `).join('')}
@@ -1010,9 +1021,28 @@ function secureRandomInt(n){
 }
 function secureRandomFloat(){ return secureRandomInt(1000000) / 1000000; }
 
+// Lowest score that still enters the drawing. Defaults to a perfect score until the admin changes it.
+function effectiveMinScore(s){
+  const total = s.questions.length;
+  const m = parseInt(s.minScore, 10);
+  if(isNaN(m)) return total;
+  return Math.max(1, Math.min(total, m));
+}
+
 function getEligible(s, responses){
-  const maxScore = s.questions.length;
-  return s.isQuiz ? responses.filter(r=>r.score===maxScore) : responses;
+  const min = effectiveMinScore(s);
+  return s.isQuiz ? responses.filter(r=>r.score >= min) : responses;
+}
+
+async function setMinScore(v){
+  if(wheelSpinning){ render(); return; }
+  const s = state.surveys.find(x=>x.id===state.activeSurveyId);
+  if(!s) return;
+  s.minScore = parseInt(v, 10);
+  state.winner = null;
+  wheelRotation = 0;
+  render();
+  await saveSurveys(state.surveys);     // remembered for next time (and copied when you Duplicate)
 }
 
 function winnerBoxHtml(w){
@@ -1140,6 +1170,7 @@ function spinWheel(){
   state.winner = null;
   const slot = document.getElementById('winner-slot'); if(slot) slot.innerHTML = '';
   const btn = document.getElementById('spin-btn'); if(btn){ btn.disabled = true; btn.textContent = 'Spinning...'; }
+  const minSel = document.getElementById('min-score'); if(minSel) minSel.disabled = true;
 
   wheelSpinning = true;
   const t0 = performance.now();
