@@ -5,8 +5,9 @@
 
 const { getStore, connectLambda } = require("@netlify/blobs");
 
-exports.handler = async (event, context) => {
+exports.handler = async (event) => {
   try {
+    // Required in the classic (event) function format so Blobs picks up its credentials.
     connectLambda(event);
     const store = getStore("ideal-crane-survey-data");
     const key = event.queryStringParameters && event.queryStringParameters.key;

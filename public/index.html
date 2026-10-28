@@ -15,6 +15,7 @@
     --border:#dcdfe2;
     --amber:#f5a623;
     --amber-dark:#c9860f;
+    --amber-ink:#9a6200;
     --text:#1c1d1f;
     --muted:#666b70;
     --danger:#c94a3f;
@@ -49,7 +50,7 @@
     background:transparent;border:1px solid var(--border);color:var(--muted);
     padding:8px 14px;font-family:'Work Sans';font-size:13px;cursor:pointer;border-radius:var(--radius);
   }
-  .hdr-nav button.active{border-color:var(--amber);color:var(--amber);}
+  .hdr-nav button.active{border-color:var(--amber);color:var(--amber-ink);}
   .stripe{
     height:10px;margin-top:18px;
     background:repeating-linear-gradient(115deg, var(--amber) 0 22px, transparent 22px 40px);
@@ -62,7 +63,7 @@
     padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,0.04);
   }
   .panel-tight{padding:16px;}
-  .eyebrow{color:var(--amber);font-size:12px;font-weight:600;margin-bottom:6px;}
+  .eyebrow{color:var(--amber-ink);font-size:12px;font-weight:600;margin-bottom:6px;}
   .muted{color:var(--muted);}
   .small{font-size:13px;}
 
@@ -78,9 +79,9 @@
     background:transparent;border:1px solid var(--border);color:var(--text);
     font-family:'Work Sans';font-weight:500;font-size:13px;padding:9px 16px;border-radius:var(--radius);cursor:pointer;
   }
-  .btn-outline:hover{border-color:var(--amber);color:var(--amber);}
+  .btn-outline:hover{border-color:var(--amber);color:var(--amber-ink);}
   .btn-danger{border-color:var(--danger);color:var(--danger);}
-  .btn-danger:hover{background:var(--danger);color:#171717;}
+  .btn-danger:hover{background:var(--danger);color:#ffffff;}
   .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
 
   /* forms */
@@ -112,7 +113,7 @@
   .tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:0.03em;padding:3px 8px;border-radius:2px;margin-right:6px;}
   .tag-open{background:rgba(92,174,107,0.15);color:var(--success);border:1px solid var(--success);}
   .tag-closed{background:rgba(226,83,75,0.12);color:var(--danger);border:1px solid var(--danger);}
-  .tag-quiz{background:rgba(245,166,35,0.12);color:var(--amber);border:1px solid var(--amber);}
+  .tag-quiz{background:rgba(245,166,35,0.12);color:var(--amber-ink);border:1px solid var(--amber);}
 
   .progress-track{height:6px;background:var(--panel-raised);border:1px solid var(--border);border-radius:3px;overflow:hidden;margin-bottom:20px;}
   .progress-fill{height:100%;background:var(--amber);}
@@ -126,22 +127,24 @@
     text-align:center;padding:30px 20px;border:1px solid var(--amber);border-radius:var(--radius);
     background:rgba(245,166,35,0.07);
   }
-  .winner-name{font-family:'Oswald';font-size:28px;color:var(--amber);margin:8px 0 4px 0;}
+  .winner-name{font-family:'Oswald';font-size:28px;color:var(--amber-ink);margin:8px 0 4px 0;}
 
   .empty{padding:30px 20px;text-align:center;color:var(--muted);border:1px dashed var(--border);border-radius:var(--radius);}
   .divider{border:none;border-top:1px solid var(--border);margin:18px 0;}
   .qcard{border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;background:var(--panel-raised);}
   .qcard-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
-  .qnum{color:var(--amber);font-family:'Oswald';font-size:13px;font-weight:600;}
+  .qnum{color:var(--amber-ink);font-family:'Oswald';font-size:13px;font-weight:600;}
   .review-item{border:1px solid var(--border);border-left-width:3px;border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;background:var(--panel-raised);text-align:left;}
   .review-item.review-correct{border-left-color:var(--success);}
   .review-item.review-incorrect{border-left-color:var(--danger);}
   .review-hdr{display:flex;justify-content:space-between;align-items:center;}
+  .review-explain{margin-top:10px;padding:10px 12px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;}
+  .review-explain strong{color:var(--amber-ink);font-family:'Oswald';font-weight:600;letter-spacing:0.02em;}
   .footer-note{color:var(--muted);font-size:12px;text-align:center;padding:20px;}
-  a{color:var(--amber);}
+  a{color:var(--amber-ink);}
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
   .link-btn{background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:13px;padding:0;}
-  .link-btn:hover{color:var(--amber);}
+  .link-btn:hover{color:var(--amber-ink);}
 </style>
 </head>
 <body>
@@ -334,7 +337,7 @@ function viewHome(){
           </div>
           <h3>${escapeHtml(s.title)}</h3>
           <p class="muted small">${escapeHtml(s.description || '')}</p>
-          ${s.prize ? `<p class="small"><strong style="color:var(--amber)">Prize:</strong> ${escapeHtml(s.prize)}</p>` : ''}
+          ${s.prize ? `<p class="small"><strong style="color:var(--amber-ink)">Prize:</strong> ${escapeHtml(s.prize)}</p>` : ''}
           <p class="muted small">${s.questions.length} question${s.questions.length===1?'':'s'}</p>
         </div>
         <button class="btn" onclick="startSurvey('${s.id}')">Take Survey</button>
@@ -370,7 +373,7 @@ function viewTake(){
       <div class="eyebrow">${s.isQuiz ? 'TRIVIA ENTRY' : 'SURVEY'}</div>
       <h2>${escapeHtml(s.title)}</h2>
       <p class="muted">${escapeHtml(s.description || '')}</p>
-      ${s.prize ? `<p class="small"><strong style="color:var(--amber)">Prize:</strong> ${escapeHtml(s.prize)}</p>` : ''}
+      ${s.prize ? `<p class="small"><strong style="color:var(--amber-ink)">Prize:</strong> ${escapeHtml(s.prize)}</p>` : ''}
       <hr class="divider">
       <label>Your name</label>
       <input type="text" id="take-name" value="${escapeAttr(state.takeName)}" placeholder="First and last name">
@@ -481,10 +484,10 @@ async function submitSurvey(){
     if(correct) score++;
     review.push({
       text: q.text,
-      type: q.type,
       correct: correct,
       givenDisplay: formatAnswerDisplay(q, given),
-      correctDisplay: formatAnswerDisplay(q, q.correctAnswer)
+      correctDisplay: formatAnswerDisplay(q, q.correctAnswer),
+      explanation: (q.explanation || '').trim()
     });
   });
   const responses = await loadResponses(s.id);
@@ -528,7 +531,7 @@ function viewDone(){
   <div class="panel" style="text-align:center;padding:36px 20px;">
     <h2>Thanks, ${escapeHtml(state.takeName)}!</h2>
     <p class="muted">Your answers have been submitted${s && s.isQuiz ? ` for <strong style="color:var(--text)">${escapeHtml(s.title)}</strong>` : ''}.</p>
-    ${s && s.isQuiz ? `<p>You scored <strong style="color:var(--amber)">${state.lastScore} / ${s.questions.length}</strong></p>` : ''}
+    ${s && s.isQuiz ? `<p>You scored <strong style="color:var(--amber-ink)">${state.lastScore} / ${s.questions.length}</strong></p>` : ''}
     ${s && s.prize ? `<p class="small muted">You're now entered for: ${escapeHtml(s.prize)}</p>` : ''}
     <div class="btn-row" style="justify-content:center;">
       <button class="btn" onclick="goHome()">Back to surveys</button>
@@ -546,7 +549,8 @@ function viewDone(){
         </div>
         <p style="margin:6px 0 8px 0;">${escapeHtml(r.text)}</p>
         <p class="small muted" style="margin:0;">Your answer: <span style="color:var(--text)">${escapeHtml(r.givenDisplay)}</span></p>
-        ${!r.correct ? `<p class="small" style="margin:4px 0 0 0;">Correct answer: <span style="color:var(--success)">${escapeHtml(r.correctDisplay)}</span></p>` : ''}
+        ${!r.correct ? `<p class="small" style="margin:4px 0 0 0;">Correct answer: <span style="color:var(--success);font-weight:600;">${escapeHtml(r.correctDisplay)}</span></p>` : ''}
+        ${r.explanation ? `<div class="review-explain"><strong>${r.correct ? 'WHY THIS IS RIGHT' : 'WHY'}</strong><br>${escapeHtml(r.explanation).replace(/\n/g,'<br>')}</div>` : ''}
       </div>
     `).join('')}
   </div>
@@ -807,7 +811,16 @@ function renderQuestionEditor(q, i, isQuiz){
     <label>Question text</label>
     <input type="text" value="${escapeAttr(q.text)}" placeholder="Enter the question" oninput="setQuestionText('${q.id}', this.value)">
     ${inner}
+    ${isQuiz ? `
+    <label>Explanation (optional — shown to everyone after they submit, whether they got it right or wrong)</label>
+    <textarea placeholder="Why is this the right answer? e.g. A hard hat is required anywhere there is an overhead hazard." oninput="setExplanation('${q.id}', this.value)">${escapeHtml(q.explanation||'')}</textarea>
+    ` : ''}
   </div>`;
+}
+
+function setExplanation(qId, val){
+  const q = state.editDraft.questions.find(q=>q.id===qId);
+  q.explanation = val;
 }
 
 function syncTopFields(){
