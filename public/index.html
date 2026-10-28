@@ -140,6 +140,25 @@
   .review-hdr{display:flex;justify-content:space-between;align-items:center;}
   .review-explain{margin-top:10px;padding:10px 12px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;}
   .review-explain strong{color:var(--amber-ink);font-family:'Oswald';font-weight:600;letter-spacing:0.02em;}
+  /* winner wheel */
+  .wheel-panel{text-align:center;}
+  .wheel-wrap{max-width:440px;margin:0 auto;}
+  .wheel-wrap canvas{width:100%;height:auto;display:block;}
+  .wheel-ticker{font-family:'Oswald',sans-serif;font-size:20px;min-height:30px;margin-top:6px;color:var(--text);}
+  .sound-toggle{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:13px;color:var(--muted);cursor:pointer;}
+  .sound-toggle input{accent-color:var(--amber);width:16px;height:16px;}
+
+  /* celebration overlay */
+  #fx-overlay{position:fixed;inset:0;z-index:9999;background:rgba(6,8,16,0.88);opacity:0;transition:opacity .45s ease;cursor:pointer;}
+  #fx-overlay.show{opacity:1;}
+  #fx-overlay canvas{position:absolute;inset:0;width:100%;height:100%;}
+  .fx-text{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;pointer-events:none;padding:0 20px;}
+  .fx-kicker{font-family:'Oswald',sans-serif;letter-spacing:.3em;color:#ffd98a;font-size:clamp(14px,2.4vw,22px);margin-bottom:6px;}
+  .fx-name{font-family:'Oswald',sans-serif;font-weight:700;font-size:clamp(40px,10vw,120px);line-height:1.05;color:#fff;
+           text-shadow:0 0 30px rgba(245,166,35,.85),0 4px 18px rgba(0,0,0,.6);word-break:break-word;
+           animation:fxpop .8s cubic-bezier(.2,1.4,.4,1) both;}
+  @keyframes fxpop{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:1}}
+  .fx-hint{position:absolute;bottom:18px;left:0;right:0;text-align:center;color:rgba(255,255,255,.55);font-size:13px;pointer-events:none;}
   .footer-note{color:var(--muted);font-size:12px;text-align:center;padding:20px;}
   a{color:var(--amber-ink);}
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
@@ -246,6 +265,7 @@ function render(){
   const app = document.getElementById('app');
   app.innerHTML = header() + '<div class="content">' + body() + '</div>' + footer();
   if(state.view === 'adminShare') renderQrCode();
+  if(state.view === 'adminResponses') setupWheel();
 }
 
 function renderQrCode(){
@@ -725,6 +745,7 @@ function copyShareLink(){
 function openResponses(id){
   state.activeSurveyId = id;
   state.winner = null;
+  wheelRotation = 0;
   state.view = 'adminResponses';
   loadResponsesIntoCacheAndRender(id);
 }
@@ -922,16 +943,17 @@ function viewAdminResponses(){
   </div>
 
   ${responses.length>0 ? `
-  <div class="panel">
-    <div class="btn-row" style="margin-top:0;">
-      <button class="btn" onclick="pickWinner()" ${eligible.length===0?'disabled':''}>Pick random winner</button>
-    </div>
-    ${state.winner ? `
-      <div class="winner-box" style="margin-top:16px;">
-        <div class="muted small">WINNER</div>
-        <div class="winner-name">${escapeHtml(state.winner.name)}</div>
-        </div>
-    ` : ''}
+  <div class="panel wheel-panel">
+    ${eligible.length>0 ? `
+      <div class="eyebrow">WINNER DRAWING</div>
+      <div class="wheel-wrap"><canvas id="wheel-canvas" width="880" height="880" role="img" aria-label="Winner wheel"></canvas></div>
+      <div class="wheel-ticker" id="wheel-ticker"></div>
+      <div class="btn-row" style="justify-content:center;align-items:center;">
+        <button class="btn" id="spin-btn" onclick="spinWheel()">${state.winner ? 'Spin again' : 'Spin the wheel'}</button>
+        <label class="sound-toggle"><input type="checkbox" ${soundOn?'checked':''} onchange="setSound(this.checked)"> Sound</label>
+      </div>
+    ` : `<p class="muted" style="margin:0;">Nobody has a perfect ${maxScore}/${maxScore} yet, so there is no one to draw.</p>`}
+    <div id="winner-slot">${state.winner ? winnerBoxHtml(state.winner) : ''}</div>
   </div>
   <div class="panel">
     <table>
@@ -953,14 +975,471 @@ function viewAdminResponses(){
   `;
 }
 
-function pickWinner(){
-  const s = state.surveys.find(x=>x.id===state.activeSurveyId);
-  const responses = state.responsesCache[s.id];
+/* =================================================================
+   ADMIN: WINNER WHEEL + CELEBRATION
+================================================================= */
+const WHEEL_SIZE = 440;
+const WHEEL_COLORS = [
+  {bg:'#f5a623', fg:'#1c1d1f'},
+  {bg:'#2b2d30', fg:'#ffffff'},
+  {bg:'#ffd98a', fg:'#1c1d1f'},
+  {bg:'#5a5f66', fg:'#ffffff'},
+  {bg:'#c9860f', fg:'#ffffff'},
+  {bg:'#e9ebed', fg:'#1c1d1f'}
+];
+let wheelEntries = [];
+let wheelRotation = 0;      // radians, persists between spins
+let wheelSpinning = false;
+let soundOn = true;
+
+function setSound(v){ soundOn = !!v; if(soundOn) audioInit(); }
+
+function prefersReducedMotion(){
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+// Fair random pick (uses the browser's cryptographic random source when available)
+function secureRandomInt(n){
+  if(window.crypto && window.crypto.getRandomValues){
+    const max = Math.floor(0xFFFFFFFF / n) * n;
+    const buf = new Uint32Array(1);
+    do { window.crypto.getRandomValues(buf); } while(buf[0] >= max);
+    return buf[0] % n;
+  }
+  return Math.floor(Math.random() * n);
+}
+function secureRandomFloat(){ return secureRandomInt(1000000) / 1000000; }
+
+function getEligible(s, responses){
   const maxScore = s.questions.length;
-  const eligible = s.isQuiz ? responses.filter(r=>r.score===maxScore) : responses;
-  if(eligible.length===0) return;
-  state.winner = eligible[Math.floor(Math.random()*eligible.length)];
-  render();
+  return s.isQuiz ? responses.filter(r=>r.score===maxScore) : responses;
+}
+
+function winnerBoxHtml(w){
+  return `
+    <div class="winner-box" style="margin-top:16px;">
+      <div class="muted small">WINNER</div>
+      <div class="winner-name">${escapeHtml(w.name)}</div>
+    </div>`;
+}
+
+/* ---------------- wheel drawing ---------------- */
+function wheelColorIndex(i, n){
+  let ci = i % WHEEL_COLORS.length;
+  if(i === n-1 && n > 1 && ci === 0) ci = 3;   // keep the last slice from matching the first
+  return ci;
+}
+
+// Which slice is under the pointer (the pointer sits at the top, i.e. -90 degrees)
+function wheelIndexAt(rot, n){
+  const a = (Math.PI*2) / n;
+  let ang = (-Math.PI/2 - rot) % (Math.PI*2);
+  if(ang < 0) ang += Math.PI*2;
+  return Math.floor(ang / a) % n;
+}
+
+function drawWheel(rotation){
+  const canvas = document.getElementById('wheel-canvas');
+  const n = wheelEntries.length;
+  if(!canvas || n === 0) return;
+  const ctx = canvas.getContext('2d');
+  const S = WHEEL_SIZE, c = S/2, R = c - 26;
+  const k = canvas.width / S;
+  ctx.setTransform(k,0,0,k,0,0);
+  ctx.clearRect(0,0,S,S);
+
+  const a = (Math.PI*2) / n;
+
+  // outer ring
+  ctx.beginPath(); ctx.arc(c,c,R+8,0,Math.PI*2); ctx.fillStyle = '#1c1d1f'; ctx.fill();
+
+  // slices
+  for(let i=0;i<n;i++){
+    const start = rotation + i*a;
+    ctx.beginPath(); ctx.moveTo(c,c); ctx.arc(c,c,R,start,start+a); ctx.closePath();
+    ctx.fillStyle = WHEEL_COLORS[wheelColorIndex(i,n)].bg; ctx.fill();
+    if(a*R > 6){ ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 1; ctx.stroke(); }
+  }
+
+  // names (skipped when there are too many slices to read; the ticker shows the name instead)
+  const fontPx = n === 1 ? 20 : Math.min(18, a*R*0.4);
+  if(fontPx >= 8){
+    const maxLen = R*0.64;
+    for(let i=0;i<n;i++){
+      const col = WHEEL_COLORS[wheelColorIndex(i,n)];
+      ctx.save();
+      ctx.translate(c,c); ctx.rotate(rotation + (i+0.5)*a);
+      ctx.font = `600 ${fontPx}px 'Work Sans', sans-serif`;
+      ctx.fillStyle = col.fg; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      let t = String(wheelEntries[i]);
+      if(ctx.measureText(t).width > maxLen){
+        while(t.length > 2 && ctx.measureText(t + '…').width > maxLen) t = t.slice(0,-1);
+        t += '…';
+      }
+      ctx.fillText(t, R-14, 0);
+      ctx.restore();
+    }
+  }
+
+  // hub
+  ctx.beginPath(); ctx.arc(c,c,24,0,Math.PI*2); ctx.fillStyle = '#1c1d1f'; ctx.fill();
+  ctx.beginPath(); ctx.arc(c,c,9,0,Math.PI*2); ctx.fillStyle = '#f5a623'; ctx.fill();
+
+  // pointer (fixed at the top)
+  ctx.beginPath();
+  ctx.moveTo(c, c-R+14); ctx.lineTo(c-15, c-R-16); ctx.lineTo(c+15, c-R-16); ctx.closePath();
+  ctx.fillStyle = '#f5a623'; ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = '#1c1d1f'; ctx.lineJoin = 'round'; ctx.stroke();
+}
+
+function setTicker(text){
+  const el = document.getElementById('wheel-ticker');
+  if(el) el.textContent = text;
+}
+
+// Called after every render() on the Responses page
+function setupWheel(){
+  const s = state.surveys.find(x=>x.id===state.activeSurveyId);
+  const responses = s && state.responsesCache[s.id];
+  if(!s || !responses) return;
+  const eligible = getEligible(s, responses);
+  wheelEntries = eligible.map(r=>r.name);
+  if(eligible.length === 0) return;
+  drawWheel(wheelRotation);
+  setTicker(state.winner ? state.winner.name : (wheelSpinning ? '' : 'Ready to spin'));
+}
+
+function spinWheel(){
+  if(wheelSpinning) return;
+  const s = state.surveys.find(x=>x.id===state.activeSurveyId);
+  const responses = s && state.responsesCache[s.id];
+  if(!s || !responses) return;
+  const eligible = getEligible(s, responses);
+  if(eligible.length === 0) return;
+
+  audioInit();   // must start from this click so the browser allows sound
+
+  const entries = eligible.map(r=>r.name);
+  wheelEntries = entries;
+  const n = entries.length;
+  const a = (Math.PI*2) / n;
+
+  // Decide the winner up front (fairly), then animate the wheel to land on them.
+  const winnerIdx = secureRandomInt(n);
+  const jitter = (secureRandomFloat() - 0.5) * 0.7 * a;       // land somewhere inside the slice, not dead centre
+  const targetMod = -Math.PI/2 - (winnerIdx + 0.5)*a + jitter;
+  const reduce = prefersReducedMotion();
+  const spins = reduce ? 1 : 6 + secureRandomInt(3);
+  const start = wheelRotation;
+  let delta = (targetMod - start) % (Math.PI*2);
+  if(delta < 0) delta += Math.PI*2;
+  const total = delta + Math.PI*2*spins;
+  const duration = reduce ? 1500 : 6500;
+
+  // hide the previous winner, lock the button
+  state.winner = null;
+  const slot = document.getElementById('winner-slot'); if(slot) slot.innerHTML = '';
+  const btn = document.getElementById('spin-btn'); if(btn){ btn.disabled = true; btn.textContent = 'Spinning...'; }
+
+  wheelSpinning = true;
+  const t0 = performance.now();
+  let lastIdx = wheelIndexAt(start, n), lastTick = 0;
+
+  function frame(now){
+    if(!document.getElementById('wheel-canvas')){ wheelSpinning = false; return; }   // navigated away mid-spin
+    const p = Math.min(1, (now - t0) / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    wheelRotation = start + total*eased;
+    drawWheel(wheelRotation);
+    const idx = wheelIndexAt(wheelRotation, n);
+    if(idx !== lastIdx){
+      lastIdx = idx;
+      setTicker(entries[idx]);
+      if(now - lastTick > 45){ lastTick = now; playTick(); }
+    }
+    if(p < 1){ requestAnimationFrame(frame); return; }
+
+    // landed
+    wheelRotation = ((wheelRotation % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+    wheelSpinning = false;
+    state.winner = eligible[winnerIdx];
+    render();                       // redraws the wheel at rest and shows the winner box
+    celebrate(state.winner.name);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------------- sound (synthesized, no audio files) ---------------- */
+let audioCtx = null, masterGain = null, noiseBuf = null;
+
+function audioInit(){
+  if(!soundOn) return;
+  try{
+    if(!audioCtx){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC) return;
+      audioCtx = new AC();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.9;
+      masterGain.connect(audioCtx.destination);
+      noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate*2, audioCtx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i] = Math.random()*2 - 1;
+    }
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+  }catch(e){ audioCtx = null; }
+}
+function sfxOK(){ return soundOn && audioCtx && masterGain && noiseBuf; }
+
+function noiseBurst(o){
+  if(!sfxOK()) return;
+  try{
+    const when = o.when || 0, dur = o.dur || 0.2, gain = o.gain || 0.2;
+    const t = audioCtx.currentTime + when;
+    const src = audioCtx.createBufferSource(); src.buffer = noiseBuf;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = o.type || 'lowpass';
+    filt.frequency.setValueAtTime(o.f0 || 800, t);
+    if(o.f1) filt.frequency.exponentialRampToValueAtTime(o.f1, t + dur);
+    filt.Q.value = o.q || 1;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt); filt.connect(g); g.connect(masterGain);
+    src.start(t, Math.random()*1.0, dur + 0.05);
+  }catch(e){}
+}
+
+function tone(o){
+  if(!sfxOK()) return;
+  try{
+    const when = o.when || 0, dur = o.dur || 0.2, gain = o.gain || 0.12;
+    const t = audioCtx.currentTime + when;
+    const osc = audioCtx.createOscillator();
+    osc.type = o.type || 'triangle';
+    osc.frequency.setValueAtTime(o.freq || 440, t);
+    if(o.slideTo) osc.frequency.exponentialRampToValueAtTime(o.slideTo, t + dur);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  }catch(e){}
+}
+
+function playTick(){ tone({freq:1500, dur:0.03, type:'square', gain:0.035}); }
+function playWhoosh(){ noiseBurst({dur:0.6, type:'bandpass', f0:300, f1:2200, gain:0.1, q:2}); }
+function playBoom(size){
+  size = size || 1;
+  noiseBurst({dur:0.8, type:'lowpass', f0:900, f1:120, gain:0.45*size});
+  tone({freq:130, slideTo:40, dur:0.55, type:'sine', gain:0.45*size});
+  for(let i=0;i<8;i++) noiseBurst({when:0.1 + Math.random()*0.5, dur:0.03, type:'highpass', f0:3000, gain:0.07*size});
+}
+function playFanfare(){
+  const seq = [523.25, 659.25, 783.99, 1046.5];            // C5 E5 G5 C6
+  seq.forEach((f,i)=>tone({when:i*0.13, dur:0.22, freq:f, type:'square', gain:0.07}));
+  [523.25, 659.25, 783.99, 1046.5].forEach(f=>tone({when:0.55, dur:1.1, freq:f, type:'triangle', gain:0.09}));
+}
+function playApplause(){
+  for(let i=0;i<110;i++){
+    noiseBurst({when:0.3 + Math.random()*3.4, dur:0.02 + Math.random()*0.035, type:'bandpass',
+                f0:1500 + Math.random()*2800, gain:0.05 + Math.random()*0.07, q:0.8});
+  }
+}
+
+/* ---------------- fireworks + confetti overlay ---------------- */
+const fx = { running:false, raf:0, last:0, t0:0, w:0, h:0, s:1, ca:null, cb:null, xa:null, xb:null,
+             rockets:[], sparks:[], confetti:[], schedule:[], cannons:[], rainFrom:0, rainUntil:0 };
+const CONFETTI_COLORS = ['#f5a623','#ffd98a','#ffffff','#e2534b','#3b82f6','#34d399','#f472b6','#a78bfa'];
+
+window.addEventListener('resize', ()=>{ if(fx.running && fx.ca) fxResize(); });
+
+function fxResize(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  fx.w = window.innerWidth; fx.h = window.innerHeight;
+  fx.s = Math.max(0.6, Math.min(1.4, fx.h/800));
+  [fx.ca, fx.cb].forEach(cv=>{ cv.width = Math.round(fx.w*dpr); cv.height = Math.round(fx.h*dpr); });
+  fx.xa = fx.ca.getContext('2d'); fx.xb = fx.cb.getContext('2d');
+  fx.xa.setTransform(dpr,0,0,dpr,0,0); fx.xb.setTransform(dpr,0,0,dpr,0,0);
+}
+
+function celebrate(name){
+  if(prefersReducedMotion()) return;          // the winner box already shows the result
+  endCelebration(true);
+  const overlay = document.createElement('div');
+  overlay.id = 'fx-overlay';
+  overlay.innerHTML =
+    '<canvas id="fx-sparks"></canvas><canvas id="fx-confetti"></canvas>' +
+    '<div class="fx-text"><div class="fx-kicker">AND THE WINNER IS</div><div class="fx-name"></div></div>' +
+    '<div class="fx-hint">Click anywhere to close</div>';
+  overlay.querySelector('.fx-name').textContent = name;
+  overlay.addEventListener('click', ()=>endCelebration());
+  document.body.appendChild(overlay);
+  requestAnimationFrame(()=>overlay.classList.add('show'));
+
+  fx.ca = overlay.querySelector('#fx-sparks'); fx.cb = overlay.querySelector('#fx-confetti');
+  fxResize();
+  fx.rockets = []; fx.sparks = []; fx.confetti = [];
+  const times = [0,450,950,1350,1800,2250,2700,3150,3650,4100,4550,5000,5500];
+  fx.schedule = times.map(t=>({t:t + Math.random()*120, n:1}));
+  fx.schedule.push({t:6300, n:5});            // finale barrage
+  fx.cannons = [{t:250},{t:3300}];
+  fx.rainFrom = 1200; fx.rainUntil = 6500;
+
+  fx.running = true;
+  fx.t0 = performance.now(); fx.last = fx.t0;
+  playFanfare(); playApplause();
+  fx.raf = requestAnimationFrame(fxFrame);
+}
+
+function endCelebration(immediate){
+  fx.running = false;
+  if(fx.raf){ cancelAnimationFrame(fx.raf); fx.raf = 0; }
+  const overlays = document.querySelectorAll('#fx-overlay');
+  overlays.forEach(o=>{
+    if(immediate){ o.remove(); return; }
+    o.classList.remove('show');
+    setTimeout(()=>o.remove(), 500);
+  });
+}
+
+function fxLaunch(){
+  const s = fx.s;
+  const hues = [38,42,0,12,200,215,280,320,130,50];
+  fx.rockets.push({
+    x: fx.w*(0.1 + Math.random()*0.8), y: fx.h + 10,
+    vx: (Math.random()-0.5)*1.6*s, vy: -(9 + Math.random()*3.2)*s,
+    hue: hues[Math.floor(Math.random()*hues.length)], minY: fx.h*0.12
+  });
+  playWhoosh();
+}
+
+function fxExplode(x, y, hue){
+  const s = fx.s, xa = fx.xa;
+  const kind = Math.random();                       // <0.4 filled sphere, <0.75 ring, else double ring
+  const count = 70 + Math.floor(Math.random()*60);
+  const power = (4.2 + Math.random()*2.2)*s;
+  const hue2 = (hue + 40 + Math.random()*60) % 360;
+  for(let i=0;i<count;i++){
+    const ang = Math.random()*Math.PI*2;
+    let sp = power, h = hue;
+    if(kind < 0.4) sp = power*(0.3 + Math.random()*0.7);
+    else if(kind < 0.75) sp = power*(0.97 + Math.random()*0.06);
+    else if(i % 2){ sp = power*0.55; h = hue2; }
+    else sp = power;
+    fx.sparks.push({
+      x:x, y:y, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp, hue:h,
+      light: 60 + Math.random()*25, size: 2.2 + Math.random()*1.6,
+      decay: 0.011 + Math.random()*0.01, life: 1
+    });
+  }
+  // flash
+  xa.beginPath(); xa.arc(x, y, 30*s, 0, Math.PI*2);
+  xa.fillStyle = `hsla(${hue},100%,80%,0.55)`; xa.fill();
+  playBoom(0.6 + Math.random()*0.4);
+}
+
+function fxConfettiPiece(x, y, vx, vy){
+  if(fx.confetti.length > 1100) return;
+  fx.confetti.push({
+    x:x, y:y, vx:vx, vy:vy,
+    w: 7 + Math.random()*7, h: 4 + Math.random()*6,
+    rot: Math.random()*6.283, vr: (Math.random()-0.5)*0.35,
+    flip: Math.random()*6.283, vf: 0.08 + Math.random()*0.18,
+    phase: Math.random()*6.283, term: (3 + Math.random()*2.5)*fx.s,
+    color: CONFETTI_COLORS[Math.floor(Math.random()*CONFETTI_COLORS.length)]
+  });
+}
+
+function fxCannons(){
+  const s = fx.s;
+  for(let i=0;i<140;i++){
+    // left cannon fires up and to the right, right cannon up and to the left
+    const aL = -(45 + Math.random()*30) * Math.PI/180;
+    const aR = -(105 + Math.random()*30) * Math.PI/180;
+    const spL = (12 + Math.random()*12)*s, spR = (12 + Math.random()*12)*s;
+    fxConfettiPiece(Math.random()*20, fx.h - Math.random()*40, Math.cos(aL)*spL, Math.sin(aL)*spL);
+    fxConfettiPiece(fx.w - Math.random()*20, fx.h - Math.random()*40, Math.cos(aR)*spR, Math.sin(aR)*spR);
+  }
+  tone({freq:220, slideTo:60, dur:0.25, type:'sine', gain:0.3});
+  noiseBurst({dur:0.25, type:'lowpass', f0:2000, f1:300, gain:0.3});
+}
+
+function fxFrame(now){
+  if(!fx.running) return;
+  const elapsed = now - fx.t0;
+  const dt = Math.min(2.5, Math.max(0.2, (now - fx.last)/16.67));
+  fx.last = now;
+  const s = fx.s;
+
+  // timeline: rockets, confetti cannons, confetti rain
+  while(fx.schedule.length && fx.schedule[0].t <= elapsed){
+    const item = fx.schedule.shift();
+    for(let k=0;k<item.n;k++) fxLaunch();
+  }
+  while(fx.cannons.length && fx.cannons[0].t <= elapsed){ fx.cannons.shift(); fxCannons(); }
+  if(elapsed > fx.rainFrom && elapsed < fx.rainUntil){
+    let spawn = 3*dt;
+    while(spawn > 0){
+      if(Math.random() < Math.min(1, spawn)) fxConfettiPiece(Math.random()*fx.w, -12, (Math.random()-0.5)*2, (1.5 + Math.random()*2)*s);
+      spawn -= 1;
+    }
+  }
+
+  // fireworks layer (fades previous frame to leave glowing trails)
+  const xa = fx.xa;
+  xa.globalCompositeOperation = 'destination-out';
+  xa.fillStyle = 'rgba(0,0,0,0.2)';
+  xa.fillRect(0, 0, fx.w, fx.h);
+  xa.globalCompositeOperation = 'lighter';
+
+  for(let i=fx.rockets.length-1;i>=0;i--){
+    const r = fx.rockets[i];
+    r.x += r.vx*dt; r.y += r.vy*dt; r.vy += 0.12*s*dt;
+    xa.fillStyle = `hsla(${r.hue},100%,75%,0.9)`;
+    xa.beginPath(); xa.arc(r.x, r.y, 2.2, 0, Math.PI*2); xa.fill();
+    if(r.vy > -1.4*s || r.y < r.minY){ fx.rockets.splice(i,1); fxExplode(r.x, r.y, r.hue); }
+  }
+
+  xa.lineCap = 'round';
+  for(let i=fx.sparks.length-1;i>=0;i--){
+    const p = fx.sparks[i];
+    const px = p.x, py = p.y;
+    const fr = Math.pow(0.985, dt);
+    p.vx *= fr; p.vy = p.vy*fr + 0.045*s*dt;
+    p.x += p.vx*dt; p.y += p.vy*dt;
+    p.life -= p.decay*dt;
+    if(p.life <= 0){ fx.sparks.splice(i,1); continue; }
+    xa.strokeStyle = `hsla(${p.hue},100%,${p.light}%,${Math.min(1, p.life*1.4)})`;
+    xa.lineWidth = p.size;
+    xa.beginPath(); xa.moveTo(px, py); xa.lineTo(p.x, p.y); xa.stroke();
+  }
+
+  // confetti layer
+  const xb = fx.xb;
+  xb.clearRect(0, 0, fx.w, fx.h);
+  for(let i=fx.confetti.length-1;i>=0;i--){
+    const c = fx.confetti[i];
+    const fr = Math.pow(0.992, dt);
+    c.vx *= fr; c.vy = c.vy*fr + 0.22*s*dt;
+    if(c.vy > c.term) c.vy = c.term;
+    c.phase += 0.08*dt;
+    c.x += (c.vx + Math.sin(c.phase)*0.6)*dt; c.y += c.vy*dt;
+    c.rot += c.vr*dt; c.flip += c.vf*dt;
+    if(c.y > fx.h + 30){ fx.confetti.splice(i,1); continue; }
+    xb.save();
+    xb.translate(c.x, c.y); xb.rotate(c.rot); xb.scale(1, Math.cos(c.flip));
+    xb.fillStyle = c.color;
+    xb.fillRect(-c.w/2, -c.h/2, c.w, c.h);
+    xb.restore();
+  }
+
+  const done = !fx.schedule.length && !fx.cannons.length && !fx.rockets.length &&
+               !fx.sparks.length && !fx.confetti.length && elapsed > fx.rainUntil;
+  if(done || elapsed > 16000){ endCelebration(); return; }
+  fx.raf = requestAnimationFrame(fxFrame);
 }
 
 /* ---------------------------------------------------------------
