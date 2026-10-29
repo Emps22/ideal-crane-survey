@@ -159,6 +159,34 @@
            animation:fxpop .8s cubic-bezier(.2,1.4,.4,1) both;}
   @keyframes fxpop{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:1}}
   .fx-hint{position:absolute;bottom:18px;left:0;right:0;text-align:center;color:rgba(255,255,255,.55);font-size:13px;pointer-events:none;}
+  /* results charts */
+  .res-q{padding:16px 0;border-top:1px solid var(--border);}
+  .res-q:first-of-type{border-top:none;padding-top:4px;}
+  .res-q h4{font-family:'Work Sans',sans-serif;font-weight:600;font-size:15px;margin:0 0 2px 0;letter-spacing:0;}
+  .res-meta{font-size:13px;color:var(--muted);margin:0 0 6px 0;}
+  .bar-row{margin:10px 0 0 0;}
+  .bar-label{font-size:14px;margin-bottom:4px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;}
+  .bar-correct{font-size:12px;font-weight:600;color:var(--success);}
+  .bar-line{display:flex;align-items:center;gap:12px;}
+  .bar-track{flex:1;height:14px;background:var(--panel-raised);border-radius:4px;min-width:0;}
+  .bar-fill{height:100%;min-width:2px;border-radius:0 4px 4px 0;background:#c9860f;}
+  .bar-fill.is-correct{background:var(--success);}
+  .bar-fill.is-other{background:#8b9198;}
+  .bar-value{flex:0 0 92px;text-align:right;font-size:13px;white-space:nowrap;}
+  .bar-value strong{font-weight:600;}
+  .bar-row:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:2px;}
+  .text-answers{margin:8px 0 0 0;padding:0;list-style:none;max-height:220px;overflow:auto;}
+  .text-answers li{padding:6px 0;border-top:1px solid var(--border);font-size:14px;}
+  .text-answers li:first-child{border-top:none;}
+  .detail-row td{background:var(--panel-raised);padding:12px 14px;}
+  .detail-q{margin:0 0 10px 0;font-size:14px;}
+  .detail-q:last-child{margin-bottom:0;}
+  .detail-ok{color:var(--success);font-weight:600;}
+  .detail-bad{color:var(--danger);font-weight:600;}
+  .link-small{background:none;border:none;color:var(--amber-ink);text-decoration:underline;cursor:pointer;font-size:13px;padding:0;font-family:'Work Sans',sans-serif;}
+  .resp-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  @media (max-width:520px){ .bar-value{flex-basis:74px;} .table-wrap th,.table-wrap td{padding:8px 6px;font-size:12px;} }
   .footer-note{color:var(--muted);font-size:12px;text-align:center;padding:20px;}
   a{color:var(--amber-ink);}
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
@@ -773,6 +801,7 @@ function copyShareLink(){
 function openResponses(id){
   state.activeSurveyId = id;
   state.winner = null;
+  state.expandedResponse = null;
   wheelRotation = 0;
   state.view = 'adminResponses';
   loadResponsesIntoCacheAndRender(id);
@@ -983,6 +1012,158 @@ async function saveDraft(){
 /* =================================================================
    ADMIN: RESPONSES + WINNER PICKER
 ================================================================= */
+
+/* =================================================================
+   ADMIN: RESULTS BY QUESTION (bar charts), PER-PERSON ANSWERS, CSV
+================================================================= */
+function isAnswered(v){
+  if(v===undefined || v===null || v==='') return false;
+  if(Array.isArray(v) && v.length===0) return false;
+  return true;
+}
+
+// Tally one question across all responses.
+function questionStats(q, s, responses){
+  const answers = responses.map(r=>(r.answers||{})[q.id]).filter(isAnswered);
+  const answered = answers.length;
+  let rows = [];
+  if(q.type==='multiple_choice'){
+    rows = q.options.map((label,i)=>({label, count:answers.filter(a=>a===i).length, correct:s.isQuiz && q.correctAnswer===i}));
+  }else if(q.type==='multi_select'){
+    const right = Array.isArray(q.correctAnswer) ? q.correctAnswer : [];
+    rows = q.options.map((label,i)=>({label, count:answers.filter(a=>Array.isArray(a) && a.includes(i)).length, correct:s.isQuiz && right.includes(i)}));
+  }else if(q.type==='true_false'){
+    rows = [
+      {label:'True',  count:answers.filter(a=>a===true).length,  correct:s.isQuiz && q.correctAnswer===true},
+      {label:'False', count:answers.filter(a=>a===false).length, correct:s.isQuiz && q.correctAnswer===false}
+    ];
+  }else{
+    // fill in the blank: group identical answers (ignoring case and extra spaces)
+    const groups = new Map();
+    answers.forEach(a=>{
+      const text = String(a).trim();
+      const key = text.toLowerCase();
+      if(!groups.has(key)) groups.set(key, {label:text, count:0, correct: s.isQuiz && key===String(q.correctAnswer||'').trim().toLowerCase()});
+      groups.get(key).count++;
+    });
+    rows = [...groups.values()].sort((a,b)=>b.count-a.count);
+  }
+  const rightCount = s.isQuiz ? responses.filter(r=>isAnswered((r.answers||{})[q.id]) && isCorrect(q, r.answers[q.id])).length : null;
+  return {answered, rows, rightCount};
+}
+
+function pct(n, d){ return d>0 ? Math.round(n/d*100) : 0; }
+
+function barRowHtml(row, answered, s){
+  const p = pct(row.count, answered);
+  const cls = s.isQuiz ? (row.correct ? 'is-correct' : 'is-other') : '';
+  const tip = `${row.label} — ${row.count} of ${answered} (${p}%)`;
+  return `
+    <div class="bar-row" tabindex="0" title="${escapeAttr(tip)}" aria-label="${escapeAttr(tip)}">
+      <div class="bar-label"><span>${escapeHtml(row.label || '(blank)')}</span>${row.correct ? '<span class="bar-correct">✓ Correct answer</span>' : ''}</div>
+      <div class="bar-line">
+        <div class="bar-track"><div class="bar-fill ${cls}" style="width:${p}%"></div></div>
+        <div class="bar-value"><strong>${row.count}</strong> &middot; ${p}%</div>
+      </div>
+    </div>`;
+}
+
+function resultsPanelHtml(s, responses){
+  const MAX_TEXT_BARS = 8;
+  const blocks = s.questions.map((q,i)=>{
+    const st = questionStats(q, s, responses);
+    const typeLabel = q.type==='multiple_choice' ? 'Multiple choice' : q.type==='multi_select' ? 'Select all that apply' : q.type==='true_false' ? 'True / False' : 'Fill in the blank';
+    let meta = `${st.answered} of ${responses.length} answered &middot; ${typeLabel}`;
+    if(s.isQuiz && st.answered>0) meta += ` &middot; <strong style="color:var(--text)">${pct(st.rightCount, st.answered)}% got it right</strong> (${st.rightCount} of ${st.answered})`;
+    let body = '';
+    if(st.answered===0){
+      body = `<p class="muted small" style="margin:8px 0 0 0;">No answers yet.</p>`;
+    }else if(q.type==='fill_blank' && !s.isQuiz){
+      body = `<ul class="text-answers">${st.rows.map(r=>`<li>${escapeHtml(r.label)}${r.count>1?` <span class="muted">× ${r.count}</span>`:''}</li>`).join('')}</ul>`;
+    }else if(q.type==='fill_blank'){
+      const shown = st.rows.slice(0, MAX_TEXT_BARS), rest = st.rows.slice(MAX_TEXT_BARS);
+      body = shown.map(r=>barRowHtml(r, st.answered, s)).join('');
+      if(rest.length) body += `<p class="muted small" style="margin:10px 0 0 0;">+ ${rest.length} other answer${rest.length===1?'':'s'} (${rest.reduce((a,r)=>a+r.count,0)} people). See each person’s answers below.</p>`;
+    }else{
+      body = st.rows.map(r=>barRowHtml(r, st.answered, s)).join('');
+      if(q.type==='multi_select') body += `<p class="muted small" style="margin:10px 0 0 0;">People could pick more than one, so the percentages add up to more than 100.</p>`;
+    }
+    return `<div class="res-q"><h4>Q${i+1}. ${escapeHtml(q.text)}</h4><p class="res-meta">${meta}</p>${body}</div>`;
+  }).join('');
+  return `
+  <div class="panel">
+    <div class="eyebrow">RESULTS BY QUESTION</div>
+    <p class="muted small" style="margin:0 0 4px 0;">How many people chose each answer${s.isQuiz ? '. The green bar is the correct answer' : ''}.</p>
+    ${blocks}
+  </div>`;
+}
+
+function toggleResponseDetail(id){
+  if(wheelSpinning) return;
+  state.expandedResponse = state.expandedResponse===id ? null : id;
+  render();
+}
+
+function responseDetailHtml(s, r){
+  return s.questions.map((q,i)=>{
+    const given = (r.answers||{})[q.id];
+    const text = formatAnswerDisplay(q, given);
+    let mark = '';
+    if(s.isQuiz){
+      const ok = isAnswered(given) && isCorrect(q, given);
+      mark = ok ? ` <span class="detail-ok">✓ Correct</span>` : ` <span class="detail-bad">✗ Incorrect</span> <span class="muted">(correct: ${escapeHtml(formatAnswerDisplay(q, q.correctAnswer))})</span>`;
+    }
+    return `<p class="detail-q"><strong>Q${i+1}.</strong> ${escapeHtml(q.text)}<br>${escapeHtml(text)}${mark}</p>`;
+  }).join('');
+}
+
+function responseRowsHtml(s, responses, minScore){
+  const cols = s.isQuiz ? 5 : 3;
+  return responses.slice().sort((a,b)=>b.submittedAt.localeCompare(a.submittedAt)).map(r=>{
+    const open = state.expandedResponse===r.id;
+    return `
+      <tr>
+        <td>${escapeHtml(r.name)}</td>
+        ${s.isQuiz?`<td>${r.score}/${r.total}</td><td>${r.score>=minScore?'<span class="tag tag-open">IN DRAWING</span>':''}</td>`:''}
+        <td class="muted">${formatDate(r.submittedAt)}</td>
+        <td style="text-align:right;"><button class="link-small" onclick="toggleResponseDetail('${r.id}')" aria-expanded="${open}">${open?'Hide answers':'View answers'}</button></td>
+      </tr>
+      ${open ? `<tr class="detail-row"><td colspan="${cols}">${responseDetailHtml(s, r)}</td></tr>` : ''}`;
+  }).join('');
+}
+
+function csvCell(v){
+  let t = String(v===undefined||v===null ? '' : v);
+  if(/^[=+\-@\t\r]/.test(t)) t = "'" + t;           // stop spreadsheet formula injection
+  return '"' + t.replace(/"/g,'""') + '"';
+}
+
+function buildCsv(s, responses){
+  const head = ['Name','Submitted'].concat(s.isQuiz ? ['Score','Out of'] : [], s.questions.map((q,i)=>`Q${i+1}: ${q.text}`));
+  const lines = [head.map(csvCell).join(',')];
+  responses.slice().sort((a,b)=>a.submittedAt.localeCompare(b.submittedAt)).forEach(r=>{
+    const cells = [r.name, r.submittedAt].concat(s.isQuiz ? [r.score, r.total] : [], s.questions.map(q=>{
+      const g = (r.answers||{})[q.id];
+      return isAnswered(g) ? formatAnswerDisplay(q, g) : '';
+    }));
+    lines.push(cells.map(csvCell).join(','));
+  });
+  return '﻿' + lines.join('\r\n');
+}
+
+function downloadCsv(){
+  const s = state.surveys.find(x=>x.id===state.activeSurveyId);
+  const responses = s && state.responsesCache[s.id];
+  if(!s || !responses) return;
+  const blob = new Blob([buildCsv(s, responses)], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (s.title.replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') || 'survey') + '-responses.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
 function viewAdminResponses(){
   const s = state.surveys.find(x=>x.id===state.activeSurveyId);
   if(!s) return `<div class="empty">Survey not found.</div>`;
@@ -1023,19 +1204,18 @@ function viewAdminResponses(){
     ` : `<p class="muted" style="margin:0;">Nobody has scored ${minScore===maxScore ? 'a perfect '+maxScore+'/'+maxScore : minScore+'/'+maxScore+' or better'} yet, so there is no one to draw.</p>`}
     <div id="winner-slot">${state.winner ? winnerBoxHtml(state.winner) : ''}</div>
   </div>
+  ${resultsPanelHtml(s, responses)}
   <div class="panel">
+    <div class="resp-head">
+      <div class="eyebrow" style="margin:0;">EVERY RESPONSE</div>
+      <button class="btn-outline" onclick="downloadCsv()">Download CSV (opens in Excel)</button>
+    </div>
+    <div class="table-wrap">
     <table>
-      <thead><tr><th>Name</th>${s.isQuiz?'<th>Score</th><th>Drawing</th>':''}<th>Submitted</th></tr></thead>
-      <tbody>
-        ${responses.slice().sort((a,b)=>b.submittedAt.localeCompare(a.submittedAt)).map(r=>`
-          <tr>
-            <td>${escapeHtml(r.name)}</td>
-            ${s.isQuiz?`<td>${r.score}/${r.total}</td><td>${r.score>=minScore?'<span class="tag tag-open">IN DRAWING</span>':''}</td>`:''}
-            <td class="muted">${formatDate(r.submittedAt)}</td>
-          </tr>
-        `).join('')}
-      </tbody>
+      <thead><tr><th>Name</th>${s.isQuiz?'<th>Score</th><th>Drawing</th>':''}<th>Submitted</th><th></th></tr></thead>
+      <tbody>${responseRowsHtml(s, responses, minScore)}</tbody>
     </table>
+    </div>
   </div>
   ` : `<div class="empty">No responses yet.</div>`}
 
